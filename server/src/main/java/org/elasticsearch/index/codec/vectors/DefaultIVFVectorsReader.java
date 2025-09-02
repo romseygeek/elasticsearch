@@ -19,7 +19,6 @@ import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.VectorUtil;
 import org.apache.lucene.util.hnsw.NeighborQueue;
-import org.elasticsearch.index.codec.vectors.reflect.OffHeapStats;
 import org.elasticsearch.simdvec.ES91OSQVectorsScorer;
 import org.elasticsearch.simdvec.ES92Int7VectorsScorer;
 import org.elasticsearch.simdvec.ESVectorUtil;
@@ -38,7 +37,7 @@ import static org.elasticsearch.simdvec.ES91OSQVectorsScorer.BULK_SIZE;
  * Default implementation of {@link IVFVectorsReader}. It scores the posting lists centroids using
  * brute force and then scores the top ones using the posting list.
  */
-public class DefaultIVFVectorsReader extends IVFVectorsReader implements OffHeapStats {
+public class DefaultIVFVectorsReader extends IVFVectorsReader {
 
     // The percentage of centroids that are scored to keep recall
     public static final double CENTROID_SAMPLING_PERCENTAGE = 0.2;
@@ -442,13 +441,13 @@ public class DefaultIVFVectorsReader extends IVFVectorsReader implements OffHeap
             for (int j = 0; j < BULK_SIZE; j++) {
                 int doc = docIdsScratch[j + offset];
                 if (doc != -1) {
-                    indexInput.seek(slicePos + (offset * quantizedByteLength) + (j * quantizedVectorByteSize));
                     float qcDist = osqVectorsScorer.quantizeScore(quantizedQueryScratch);
                     scores[j] = qcDist;
+                } else {
+                    indexInput.skipBytes(quantizedVectorByteSize);
                 }
             }
             // read in all corrections
-            indexInput.seek(slicePos + (offset * quantizedByteLength) + (BULK_SIZE * quantizedVectorByteSize));
             indexInput.readFloats(correctionsLower, 0, BULK_SIZE);
             indexInput.readFloats(correctionsUpper, 0, BULK_SIZE);
             for (int j = 0; j < BULK_SIZE; j++) {
@@ -504,18 +503,18 @@ public class DefaultIVFVectorsReader extends IVFVectorsReader implements OffHeap
 
         @Override
         public int visit(KnnCollector knnCollector) throws IOException {
+            indexInput.seek(slicePos);
             // block processing
             int scoredDocs = 0;
             int limit = vectors - BULK_SIZE + 1;
             int i = 0;
-
             for (; i < limit; i += BULK_SIZE) {
                 final int docsToBulkScore = acceptDocs == null ? BULK_SIZE : docToBulkScore(docIdsScratch, i, acceptDocs);
                 if (docsToBulkScore == 0) {
+                    indexInput.skipBytes(quantizedByteLength * BULK_SIZE);
                     continue;
                 }
                 quantizeQueryIfNecessary();
-                indexInput.seek(slicePos + i * quantizedByteLength);
                 final float maxScore;
                 if (docsToBulkScore < BULK_SIZE / 2) {
                     maxScore = scoreIndividually(i);
@@ -541,7 +540,6 @@ public class DefaultIVFVectorsReader extends IVFVectorsReader implements OffHeap
                 int doc = docIdsScratch[i];
                 if (acceptDocs == null || acceptDocs.get(doc)) {
                     quantizeQueryIfNecessary();
-                    indexInput.seek(slicePos + i * quantizedByteLength);
                     float qcDist = osqVectorsScorer.quantizeScore(quantizedQueryScratch);
                     indexInput.readFloats(correctiveValues, 0, 3);
                     final int quantizedComponentSum = Short.toUnsignedInt(indexInput.readShort());
@@ -560,6 +558,8 @@ public class DefaultIVFVectorsReader extends IVFVectorsReader implements OffHeap
                     );
                     scoredDocs++;
                     knnCollector.collect(doc, score);
+                } else {
+                    indexInput.skipBytes(quantizedByteLength);
                 }
             }
             if (scoredDocs > 0) {

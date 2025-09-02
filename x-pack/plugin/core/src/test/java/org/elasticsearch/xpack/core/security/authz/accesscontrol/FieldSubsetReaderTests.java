@@ -46,6 +46,7 @@ import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum.SeekStatus;
+import org.apache.lucene.search.AcceptDocs;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.analysis.MockAnalyzer;
@@ -76,7 +77,6 @@ import org.elasticsearch.xcontent.XContentType;
 import org.elasticsearch.xpack.core.security.authz.permission.FieldPermissions;
 import org.elasticsearch.xpack.core.security.authz.permission.FieldPermissionsDefinition;
 import org.elasticsearch.xpack.core.security.support.Automatons;
-import org.hamcrest.Matchers;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -91,6 +91,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.instanceOf;
 
 /** Simple tests for this filterreader */
 public class FieldSubsetReaderTests extends MapperServiceTestCase {
@@ -211,13 +213,25 @@ public class FieldSubsetReaderTests extends MapperServiceTestCase {
         assertEquals(0, iterator.nextDoc());
         assertNotNull(vectorValues.vectorValue(iterator.index()));
 
-        TopDocs topDocs = leafReader.searchNearestVectors("fieldA", new float[] { 1.0f, 1.0f, 1.0f }, 5, null, Integer.MAX_VALUE);
+        TopDocs topDocs = leafReader.searchNearestVectors(
+            "fieldA",
+            new float[] { 1.0f, 1.0f, 1.0f },
+            5,
+            AcceptDocs.fromLiveDocs(leafReader.getLiveDocs(), leafReader.maxDoc()),
+            Integer.MAX_VALUE
+        );
         assertNotNull(topDocs);
         assertEquals(1, topDocs.scoreDocs.length);
 
         // Check that we can't see fieldB
         assertNull(leafReader.getFloatVectorValues("fieldB"));
-        topDocs = leafReader.searchNearestVectors("fieldB", new float[] { 1.0f, 1.0f, 1.0f }, 5, null, Integer.MAX_VALUE);
+        topDocs = leafReader.searchNearestVectors(
+            "fieldB",
+            new float[] { 1.0f, 1.0f, 1.0f },
+            5,
+            AcceptDocs.fromLiveDocs(leafReader.getLiveDocs(), leafReader.maxDoc()),
+            Integer.MAX_VALUE
+        );
         assertEquals(0, topDocs.totalHits.value());
         assertEquals(0, topDocs.scoreDocs.length);
 
@@ -246,13 +260,25 @@ public class FieldSubsetReaderTests extends MapperServiceTestCase {
         assertEquals(0, iterator.nextDoc());
         assertNotNull(vectorValues.vectorValue(iterator.index()));
 
-        TopDocs topDocs = leafReader.searchNearestVectors("fieldA", new byte[] { 1, 1, 1 }, 5, null, Integer.MAX_VALUE);
+        TopDocs topDocs = leafReader.searchNearestVectors(
+            "fieldA",
+            new byte[] { 1, 1, 1 },
+            5,
+            AcceptDocs.fromLiveDocs(leafReader.getLiveDocs(), leafReader.maxDoc()),
+            Integer.MAX_VALUE
+        );
         assertNotNull(topDocs);
         assertEquals(1, topDocs.scoreDocs.length);
 
         // Check that we can't see fieldB
         assertNull(leafReader.getByteVectorValues("fieldB"));
-        topDocs = leafReader.searchNearestVectors("fieldB", new byte[] { 1, 1, 1 }, 5, null, Integer.MAX_VALUE);
+        topDocs = leafReader.searchNearestVectors(
+            "fieldB",
+            new byte[] { 1, 1, 1 },
+            5,
+            AcceptDocs.fromLiveDocs(leafReader.getLiveDocs(), leafReader.maxDoc()),
+            Integer.MAX_VALUE
+        );
         assertEquals(0, topDocs.totalHits.value());
         assertEquals(0, topDocs.scoreDocs.length);
 
@@ -1418,9 +1444,9 @@ public class FieldSubsetReaderTests extends MapperServiceTestCase {
         DirectoryReader ir = FieldSubsetReader.wrap(DirectoryReader.open(iw), new CharacterRunAutomaton(automaton));
 
         TestUtil.checkReader(ir);
-        assertThat(ir.leaves().size(), Matchers.greaterThanOrEqualTo(1));
+        assertThat(ir.leaves().size(), greaterThanOrEqualTo(1));
         for (LeafReaderContext context : ir.leaves()) {
-            assertThat(context.reader(), Matchers.instanceOf(SequentialStoredFieldsLeafReader.class));
+            assertThat(context.reader(), instanceOf(SequentialStoredFieldsLeafReader.class));
             SequentialStoredFieldsLeafReader lf = (SequentialStoredFieldsLeafReader) context.reader();
             assertNotNull(lf.getSequentialStoredFieldsReader());
         }
