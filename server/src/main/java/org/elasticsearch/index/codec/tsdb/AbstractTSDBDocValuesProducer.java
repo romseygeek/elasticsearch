@@ -1819,6 +1819,7 @@ public abstract class AbstractTSDBDocValuesProducer extends DocValuesProducer {
                 } else {
                     if (input == null) {
                         input = data.slice("doc value skipper", entry.offset, entry.length);
+                        input.prefetch(entry.offset, entry.length);
                     }
                     assert target > maxDocID[0] : "target must be bigger than current interval";
                     while (true) {
