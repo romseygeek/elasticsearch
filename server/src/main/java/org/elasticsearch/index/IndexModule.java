@@ -135,7 +135,12 @@ public final class IndexModule {
     // whether to use the query cache
     public static final Setting<Boolean> INDEX_QUERY_CACHE_ENABLED_SETTING = Setting.boolSetting(
         "index.queries.cache.enabled",
-        true,
+        settings -> {
+            if (settings == null) {
+                return Boolean.TRUE.toString();
+            }
+            return Boolean.toString(IndexMode.fromIndexSettingsWithoutValidation(settings).isStrictColumnar() == false);
+        },
         Property.IndexScope
     );
 
