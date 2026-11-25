@@ -201,6 +201,7 @@ public class StatelessBlobCacheServiceIT extends AbstractStatelessPluginIntegTes
                 },
                 threadPool.executor(PREWARM_THREAD_POOL),
                 randomRegionTimestampMillis(),
+                true,
                 false,
                 future
             );
@@ -272,6 +273,7 @@ public class StatelessBlobCacheServiceIT extends AbstractStatelessPluginIntegTes
             ),
             threadPool.executor(PREWARM_THREAD_POOL),
             randomRegionTimestampMillis(),
+            true,
             false,
             future
         );

@@ -382,6 +382,7 @@ public class SearchCommitPrefetcher {
                         executor,
                         forcePrefetch,
                         timestampMillis,
+                        true,
                         false,
                         refCountingListener.acquire().map(populated -> {
                             if (populated) {

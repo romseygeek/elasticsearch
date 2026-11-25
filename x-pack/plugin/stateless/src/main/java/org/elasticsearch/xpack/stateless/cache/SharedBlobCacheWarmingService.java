@@ -678,6 +678,7 @@ public class SharedBlobCacheWarmingService {
                     uploadPrewarmFetchExecutor,
                     // This is only executed by indexing shards, while cache-region timestamps are implemented only for search shards
                     SharedBlobCacheService.UNKNOWN_TIMESTAMP,
+                    true,
                     listeners.acquire().map(b -> null)
                 );
             }
@@ -1964,6 +1965,7 @@ public class SharedBlobCacheWarmingService {
                     ),
                     fetchExecutor,
                     SharedBlobCacheService.UNKNOWN_TIMESTAMP,
+                    true,
                     releasedListener.map(b -> null)
                 );
             }
@@ -2076,6 +2078,7 @@ public class SharedBlobCacheWarmingService {
                         ),
                         fetchExecutor,
                         item.timestampMillis(),
+                        true,
                         awaitPendingFills,
                         l.map(ignored -> null)
                     );
@@ -2199,6 +2202,7 @@ public class SharedBlobCacheWarmingService {
                     perFileRunner.asExecutor(),
                     true,
                     timestampMillis,
+                    true,
                     awaitPendingFills,
                     l
                 );

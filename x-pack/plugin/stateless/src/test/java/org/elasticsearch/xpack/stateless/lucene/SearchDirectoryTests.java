@@ -1320,6 +1320,7 @@ public class SearchDirectoryTests extends ESTestCase {
             },
             EsExecutors.DIRECT_EXECUTOR_SERVICE,
             SharedBlobCacheService.BACKFILL_IN_PROGRESS_TIMESTAMP,
+            false,
             future
         );
         assertTrue("populating a sentinel region must succeed", future.actionGet());

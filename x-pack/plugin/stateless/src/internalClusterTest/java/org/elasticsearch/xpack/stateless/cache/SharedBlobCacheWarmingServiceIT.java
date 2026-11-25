@@ -2061,6 +2061,7 @@ public class SharedBlobCacheWarmingServiceIT extends AbstractStatelessPluginInte
             RangeMissingHandler writer,
             Executor fetchExecutor,
             long timestampMillis,
+            boolean autowarmed,
             boolean awaitPendingFill,
             ActionListener<Boolean> listener
         ) {
@@ -2076,6 +2077,7 @@ public class SharedBlobCacheWarmingServiceIT extends AbstractStatelessPluginInte
                     writer,
                     fetchExecutor,
                     timestampMillis,
+                    autowarmed,
                     awaitPendingFill,
                     listener
                 );

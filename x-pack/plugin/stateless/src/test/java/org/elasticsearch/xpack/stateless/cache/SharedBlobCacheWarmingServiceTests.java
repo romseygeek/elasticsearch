@@ -1730,6 +1730,7 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                     any(),
                     anyLong(),
                     anyBoolean(),
+                    anyBoolean(),
                     anyActionListener()
                 );
 
@@ -1795,6 +1796,7 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                 any(),
                 any(),
                 anyLong(),
+                anyBoolean(),
                 anyBoolean(),
                 anyActionListener()
             );
@@ -1870,6 +1872,7 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                     any(),
                     any(),
                     anyLong(),
+                    anyBoolean(),
                     eq(type == SEARCH),
                     anyActionListener()
                 );
@@ -2847,6 +2850,7 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                         SharedBlobCacheService.RangeMissingHandler writer,
                         Executor fetchExecutor,
                         long timestampMillis,
+                        boolean autowarmed,
                         boolean awaitPendingFill,
                         ActionListener<Boolean> listener
                     ) {

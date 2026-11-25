@@ -18,6 +18,7 @@ import org.apache.lucene.store.Lock;
 import org.apache.lucene.store.LockFactory;
 import org.apache.lucene.store.SingleInstanceLockFactory;
 import org.elasticsearch.blobcache.BlobCacheMetrics;
+import org.elasticsearch.blobcache.shared.CacheRegion;
 import org.elasticsearch.blobcache.shared.SharedBlobCacheService;
 import org.elasticsearch.common.blobstore.BlobContainer;
 import org.elasticsearch.core.Assertions;
@@ -467,6 +468,14 @@ public abstract class BlobStoreCacheDirectory extends ByteSizeDirectory {
         return null;
     }
 
+    /**
+     * @return the {@link CacheRegion#autowarmed()} flag recorded on cache regions that this directory's reads create. Directories that
+     * read metadata the shard needs to open should return {@code true} so that those regions survive a selective cache clear.
+     */
+    protected boolean autowarmed() {
+        return false;
+    }
+
     private SharedBlobCacheService<FileCacheKey>.CacheFile getCacheFile(BlobFileRanges blobFileRanges) {
         long timestampMillis = resolveRegionTimestampMillis(blobFileRanges.timestampRange());
         return cacheService.getCacheFile(
@@ -480,6 +489,7 @@ public abstract class BlobStoreCacheDirectory extends ByteSizeDirectory {
             // todo: time-source
             new CacheMissHandler(metricsHolder.singleThreaded(), System::nanoTime),
             timestampMillis,
+            autowarmed(),
             claimExecutor()
         );
     }

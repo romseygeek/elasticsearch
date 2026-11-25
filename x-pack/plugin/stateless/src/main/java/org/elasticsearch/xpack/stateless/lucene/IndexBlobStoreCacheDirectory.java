@@ -199,6 +199,12 @@ public class IndexBlobStoreCacheDirectory extends BlobStoreCacheDirectory {
             protected Executor claimExecutor() {
                 return getCacheService().getShardReadThreadPoolExecutor();
             }
+
+            // BCC header reads fetch what the shard needs to open, so they count as warming even though they read on demand.
+            @Override
+            protected boolean autowarmed() {
+                return true;
+            }
         };
         directory.updateMetadata(Map.copyOf(metadata), dataSetSizeInBytes);
         return directory;

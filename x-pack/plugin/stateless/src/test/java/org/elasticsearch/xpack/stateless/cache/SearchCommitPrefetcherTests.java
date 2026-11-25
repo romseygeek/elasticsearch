@@ -334,6 +334,7 @@ public class SearchCommitPrefetcherTests extends ESTestCase {
                     Executor fetchExecutor,
                     boolean force,
                     long timestampMillis,
+                    boolean autowarmed,
                     boolean awaitPendingFill,
                     ActionListener<Boolean> listener
                 ) {

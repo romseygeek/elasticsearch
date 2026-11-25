@@ -405,7 +405,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                 final var cacheKey = generateCacheKey();
                 final long ts = randomLongBetween(1, Long.MAX_VALUE - 1);
                 final PlainActionFuture<Boolean> future = new PlainActionFuture<>();
-                cacheService.fetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, true, ts, future);
+                cacheService.fetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, true, ts, true, future);
                 assertThat(future.get(10, TimeUnit.SECONDS), is(true));
                 // The timestamps passed in the get() call is ignored as the region is already populated and the initial timestamp is kept.
                 assertEquals(ts, cacheService.get(cacheKey, regionSize, 0, UNKNOWN_TIMESTAMP).timestampMillis());
@@ -415,7 +415,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                 final long ts = randomLongBetween(1, Long.MAX_VALUE - 1);
                 final var range = ByteRange.of(0, regionSize);
                 final PlainActionFuture<Boolean> future = new PlainActionFuture<>();
-                cacheService.fetchRange(cacheKey, 0, range, regionSize, writer, bulkExecutor, true, ts, randomBoolean(), future);
+                cacheService.fetchRange(cacheKey, 0, range, regionSize, writer, bulkExecutor, true, ts, true, randomBoolean(), future);
                 assertThat(future.get(10, TimeUnit.SECONDS), is(true));
                 assertEquals(ts, cacheService.get(cacheKey, regionSize, 0, UNKNOWN_TIMESTAMP).timestampMillis());
             }
@@ -423,7 +423,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                 final var cacheKey = generateCacheKey();
                 final long ts = randomLongBetween(1, Long.MAX_VALUE - 1);
                 final PlainActionFuture<Boolean> future = new PlainActionFuture<>();
-                cacheService.maybeFetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, ts, future);
+                cacheService.maybeFetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, ts, true, future);
                 assertThat(future.get(10, TimeUnit.SECONDS), is(true));
                 assertEquals(ts, cacheService.get(cacheKey, regionSize, 0, UNKNOWN_TIMESTAMP).timestampMillis());
             }
@@ -432,7 +432,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                 final long ts = randomLongBetween(1, Long.MAX_VALUE - 1);
                 final var range = ByteRange.of(0, regionSize);
                 final PlainActionFuture<Boolean> future = new PlainActionFuture<>();
-                cacheService.maybeFetchRange(cacheKey, 0, range, regionSize, writer, bulkExecutor, ts, randomBoolean(), future);
+                cacheService.maybeFetchRange(cacheKey, 0, range, regionSize, writer, bulkExecutor, ts, true, randomBoolean(), future);
                 assertThat(future.get(10, TimeUnit.SECONDS), is(true));
                 assertEquals(ts, cacheService.get(cacheKey, regionSize, 0, UNKNOWN_TIMESTAMP).timestampMillis());
             }
@@ -480,7 +480,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
 
             // first population path to create region 0 wins the stamp
             final PlainActionFuture<Boolean> firstFuture = new PlainActionFuture<>();
-            cacheService.fetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, true, firstTimestamp, firstFuture);
+            cacheService.fetchRegion(cacheKey, 0, regionSize, writer, bulkExecutor, true, firstTimestamp, true, firstFuture);
             assertThat(firstFuture.get(10, TimeUnit.SECONDS), is(true));
 
             // a later population path through a different overload carries a different timestamp, but the stamp is set-once
@@ -493,6 +493,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                 writer,
                 bulkExecutor,
                 secondTimestamp,
+                true,
                 randomBoolean(),
                 secondFuture
             );
@@ -502,6 +503,110 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
         } finally {
             TestThreadPool.terminate(threadPool, 10, TimeUnit.SECONDS);
         }
+    }
+
+    /// Selective eviction by [CacheRegion#autowarmed()]. The flag is fixed by whichever call creates the region first, so a region that is
+    /// later filled by the other kind of read keeps its value.
+    public void testForceEvictRegionsByAutowarmed() throws Exception {
+        final long regionSize = size(100L);
+        Settings settings = Settings.builder()
+            .put(NODE_NAME_SETTING.getKey(), "node")
+            .put(SharedBlobCacheService.SHARED_CACHE_SIZE_SETTING.getKey(), ByteSizeValue.ofBytes(size(500L)))
+            .put(SharedBlobCacheService.SHARED_CACHE_REGION_SIZE_SETTING.getKey(), ByteSizeValue.ofBytes(regionSize))
+            .put(SharedBlobCacheService.SHARED_CACHE_INITIAL_DECAYS_SETTING.getKey(), 0)
+            .put("path.home", createTempDir())
+            .build();
+        final var threadPool = new TestThreadPool("test");
+        final var bulkExecutor = new StoppableExecutorServiceWrapper(threadPool.generic());
+
+        final RangeMissingHandler writer = (
+            channel,
+            channelPos,
+            streamFactory,
+            relativePos,
+            length,
+            progressUpdater,
+            completionListener) -> completeWith(completionListener, () -> progressUpdater.accept(length));
+
+        try (
+            NodeEnvironment environment = new NodeEnvironment(settings, TestEnvironment.newEnvironment(settings));
+            var cacheService = new SharedBlobCacheService<TestCacheKey>(
+                environment,
+                settings,
+                threadPool,
+                threadPool.executor(ThreadPool.Names.GENERIC),
+                BlobCacheMetrics.NOOP
+            )
+        ) {
+            final var warmedKey = generateCacheKey();
+            final var onDemandKey = generateCacheKey();
+            final var warmedThenReadKey = generateCacheKey();
+            final var readThenWarmedKey = generateCacheKey();
+            final var warmingReadKey = generateCacheKey();
+            final var halfRegion = size(50L);
+            final var firstHalf = ByteRange.of(0, halfRegion);
+            final var secondHalf = ByteRange.of(halfRegion, regionSize);
+            final var wholeRegion = ByteRange.of(0, regionSize);
+
+            warm(cacheService, writer, bulkExecutor, regionSize, warmedKey, wholeRegion);
+            readOnDemand(cacheService, writer, onDemandKey, wholeRegion);
+            warm(cacheService, writer, bulkExecutor, regionSize, warmedThenReadKey, firstHalf);
+            readOnDemand(cacheService, writer, warmedThenReadKey, secondHalf);
+            readOnDemand(cacheService, writer, readThenWarmedKey, firstHalf);
+            warm(cacheService, writer, bulkExecutor, regionSize, readThenWarmedKey, secondHalf);
+            // a read through a CacheFile that carries WARMING, as the BCC header reads do
+            cacheService.getCacheFile(warmingReadKey, regionSize, SharedBlobCacheService.CacheMissHandler.NOOP, 0L, true, null)
+                .populateAndRead(wholeRegion, wholeRegion, (channel, pos, relativePos, len) -> len, writer, "test");
+
+            final var warmedRegion = cacheService.get(warmedKey, regionSize, 0, UNKNOWN_TIMESTAMP);
+            final var onDemandRegion = cacheService.get(onDemandKey, regionSize, 0, UNKNOWN_TIMESTAMP);
+            final var warmedThenReadRegion = cacheService.get(warmedThenReadKey, regionSize, 0, UNKNOWN_TIMESTAMP);
+            final var readThenWarmedRegion = cacheService.get(readThenWarmedKey, regionSize, 0, UNKNOWN_TIMESTAMP);
+            final var warmingReadRegion = cacheService.get(warmingReadKey, regionSize, 0, UNKNOWN_TIMESTAMP);
+            assertTrue(warmedRegion.autowarmed());
+            assertFalse(onDemandRegion.autowarmed());
+            assertTrue(warmedThenReadRegion.autowarmed());
+            assertFalse(readThenWarmedRegion.autowarmed());
+            assertTrue(warmingReadRegion.autowarmed());
+
+            assertThat(cacheService.forceEvictRegions(region -> region.autowarmed() == false), equalTo(2));
+
+            assertFalse(warmedRegion.isEvicted());
+            assertFalse(warmedThenReadRegion.isEvicted());
+            assertFalse(warmingReadRegion.isEvicted());
+            assertTrue(onDemandRegion.isEvicted());
+            assertTrue(readThenWarmedRegion.isEvicted());
+        } finally {
+            TestThreadPool.terminate(threadPool, 10, TimeUnit.SECONDS);
+        }
+    }
+
+    private static void readOnDemand(
+        SharedBlobCacheService<TestCacheKey> cacheService,
+        RangeMissingHandler writer,
+        TestCacheKey key,
+        ByteRange range
+    ) throws Exception {
+        final var cacheFile = cacheService.getCacheFile(
+            key,
+            cacheService.getRegionSize(),
+            SharedBlobCacheService.CacheMissHandler.NOOP,
+            0L
+        );
+        cacheFile.populateAndRead(range, range, (channel, pos, relativePos, len) -> len, writer, "test");
+    }
+
+    private static void warm(
+        SharedBlobCacheService<TestCacheKey> cacheService,
+        RangeMissingHandler writer,
+        Executor executor,
+        long regionSize,
+        TestCacheKey key,
+        ByteRange range
+    ) throws Exception {
+        final PlainActionFuture<Boolean> future = new PlainActionFuture<>();
+        cacheService.fetchRange(key, 0, range, regionSize, writer, executor, true, 0L, true, false, future);
+        future.get(10, TimeUnit.SECONDS);
     }
 
     public void testGetCacheFileStampsTimestampOnRead() throws Exception {
@@ -2959,6 +3064,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
 
@@ -2994,6 +3100,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                         ),
                         bulkExecutor,
                         irrelevantTimestamp(),
+                        true,
                         listener
                     );
                 }
@@ -3022,6 +3129,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
                 assertThat("Listener is immediately completed", future.isDone(), is(true));
@@ -3050,6 +3158,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
 
@@ -3110,6 +3219,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     bulkExecutor(threadPool, bulkTaskCount, executionFinishedLatch),
                     true,
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
 
@@ -3149,6 +3259,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                         bulkExecutor(threadPool, bulkTaskCount, executionFinishedLatch),
                         true,
                         irrelevantTimestamp(),
+                        true,
                         listener
                     );
                 }
@@ -3178,6 +3289,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     threadPool.generic(),
                     false,
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
                 assertThat("Listener is immediately completed", future.isDone(), is(true));
@@ -3210,6 +3322,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                         bulkExecutor(threadPool, bulkTaskCount, executionFinishedLatch),
                         true,
                         irrelevantTimestamp(),
+                        true,
                         listener
                     );
                 }
@@ -3248,6 +3361,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     bulkExecutor(threadPool, bulkTaskCount, executionFinishedLatch),
                     randomBoolean(),
                     irrelevantTimestamp(),
+                    true,
                     future
                 );
 
@@ -3350,6 +3464,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3390,6 +3505,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                         ),
                         bulkExecutor,
                         irrelevantTimestamp(),
+                        true,
                         false,
                         listener
                     );
@@ -3420,6 +3536,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3446,6 +3563,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3530,6 +3648,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     ),
                     bulkExecutor,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3571,6 +3690,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                         bulkExecutor,
                         true,
                         irrelevantTimestamp(),
+                        true,
                         false,
                         listener
                     );
@@ -3602,6 +3722,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     bulkExecutor,
                     false,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3627,6 +3748,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     bulkExecutor,
                     true,
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );
@@ -3658,6 +3780,7 @@ public class SharedBlobCacheServiceTests extends ESTestCase {
                     bulkExecutor,
                     randomBoolean(),
                     irrelevantTimestamp(),
+                    true,
                     false,
                     future
                 );

@@ -612,6 +612,13 @@ public class SearchDirectory extends BlobStoreCacheDirectory {
                 return dataSetSizeInBytes;
             }
 
+            // Metadata reads fetch what the shard needs to open, so they count as warming even though they read through the cache on
+            // demand.
+            @Override
+            protected boolean autowarmed() {
+                return true;
+            }
+
             @Override
             protected long fallbackRegionTimestampMillis() {
                 return timestampBackfillEnabled

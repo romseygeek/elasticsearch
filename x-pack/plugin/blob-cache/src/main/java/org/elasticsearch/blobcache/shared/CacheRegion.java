@@ -32,4 +32,13 @@ public interface CacheRegion<KeyType extends SharedBlobCacheService.KeyBase> {
      * Returns the byte offset where this region begins in the blob.
      */
     long startOffset();
+
+    /**
+     * Returns {@code true} if the call that created this region asked for the data ahead of any read (prewarming, prefetching or a
+     * metadata read the shard needs to open). The flag is fixed at creation, so a region later filled by the other kind of read keeps its
+     * value. Defaults to {@code false}.
+     */
+    default boolean autowarmed() {
+        return false;
+    }
 }
